@@ -40,7 +40,8 @@ static uint8_t bg_color_r = 0, bg_color_g = 0, bg_color_b = 0;
 static int  text_dir = 1;  /* 1=left-to-right, -1=right-to-left */
 static int  mirror_second = 0;  /* mirror second strip for physical layout */
 static int  text_baseline = 0;  /* vertical shift after mapping */
-static int  vflip = 1;  /* 1 = font row 0 maps to display row 7 */
+static int  vflip = 0;  /* 1 = font row 0 maps to display row 7 */
+static int  serpentine = 1;  /* 1 = odd columns run bottom-to-top */
 
 static uint32_t image_buf[NUM_LEDS];
 static bool has_image = false;
@@ -80,7 +81,9 @@ static inline int idx(int x, int y) {
     if (mirror_second && col >= 32) {
         col = 63 - (col - 32);  /* mirror second strip */
     }
-    return col * NUM_ROWS + y;
+    int py = y;
+    if (serpentine && (col & 1)) py = NUM_ROWS - 1 - py;
+    return col * NUM_ROWS + py;
 }
 
 static uint8_t rand8(void) {
@@ -387,6 +390,9 @@ static void process_cmd(const char *cmd) {
     } else if (strncmp(cmd, "VFLIP", 5) == 0) {
         vflip = !vflip;
         printf("OK VFLIP=%d\n", vflip);
+    } else if (strncmp(cmd, "SERP", 4) == 0) {
+        serpentine = !serpentine;
+        printf("OK SERP=%d\n", serpentine);
     } else if (strncmp(cmd, "BASE", 4) == 0 && cmd[4] == ' ') {
         int b;
         if (sscanf(cmd + 4, "%d", &b) == 1 && b >= 0 && b <= 1) {
@@ -457,6 +463,7 @@ static void process_cmd(const char *cmd) {
         printf("  DIR <1|-1>       Scroll direction (1=left, -1=right)\n");
         printf("  MIRROR           Toggle mirror second strip\n");
         printf("  VFLIP            Flip text vertically\n");
+        printf("  SERP             Toggle serpentine columns\n");
         printf("  BASE <0|1>       Text baseline row offset\n");
         printf("  RAINBOWTEXT      Enable rainbow colors on text\n");
         printf("  RAINBOWTEXTOFF   Disable rainbow colors on text\n");
