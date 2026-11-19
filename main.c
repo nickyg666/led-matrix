@@ -38,7 +38,7 @@ static uint8_t text_color_r = 255, text_color_g = 255, text_color_b = 255;
 static uint8_t text_rainbow = 0;
 static uint8_t bg_color_r = 0, bg_color_g = 0, bg_color_b = 0;
 static int  text_dir = 1;  /* 1=left-to-right, -1=right-to-left */
-static int  mirror_second = 1;  /* mirror second strip for physical layout */
+static int  mirror_second = 0;  /* mirror second strip for physical layout */
 
 static uint32_t image_buf[NUM_LEDS];
 static bool has_image = false;
