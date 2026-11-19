@@ -198,7 +198,7 @@ select{cursor:pointer;min-width:120px}
 <div class="card">
   <h2>Image Display</h2>
   <p style="color:var(--muted);font-size:12px;margin-bottom:10px">Send a 32x8 image. Use the grid below to paint, or paste hex data.</p>
-  <div class="matrix-preview" id="imggrid" style="grid-template-columns:repeat(32,1fr)"></div>
+  <div class="matrix-preview" id="imggrid" style="grid-template-columns:repeat(64,1fr)"></div>
   <div class="row" style="margin-top:8px">
     <button class="btn btn-sm btn-success" onclick="sendImage()">Send to Display</button>
     <button class="btn btn-sm btn-ghost" onclick="clearImage()">Clear</button>
@@ -214,7 +214,7 @@ select{cursor:pointer;min-width:120px}
 <div class="log" id="log"></div>
 <div class="toast" id="toast"></div>
 <script>
-let imgColors=new Array(256).fill('#000000');
+let imgColors=new Array(512).fill('#000000');
 let isPainting=false;
 function showTab(t,el){document.querySelectorAll('[id^=tab-]').forEach(e=>e.style.display='none');document.getElementById('tab-'+t).style.display='block';document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));el.classList.add('active');}
 function log(msg){const l=document.getElementById('log');l.innerHTML+=msg+'<br>';l.scrollTop=l.scrollHeight;}
@@ -226,11 +226,11 @@ function applyBg(){const hex=document.getElementById('bgcolor').value;const r=pa
 function refreshState(){fetch('/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cmd:'PING'})}).then(r=>r.text()).then(t=>document.getElementById('status').textContent=t);}
 // Image grid
 const imggrid=document.getElementById('imggrid');
-for(let i=0;i<256;i++){const d=document.createElement('div');d.className='matrix-cell';d.style.background='#000';d.dataset.idx=i;d.onmousedown=()=>{isPainting=true;paintImg(i);};d.onmouseenter=()=>{if(isPainting)paintImg(i);};d.onmouseup=()=>{isPainting=false;};imggrid.appendChild(d);}
+for(let i=0;i<512;i++){const d=document.createElement('div');d.className='matrix-cell';d.style.background='#000';d.dataset.idx=i;d.onmousedown=()=>{isPainting=true;paintImg(i);};d.onmouseenter=()=>{if(isPainting)paintImg(i);};d.onmouseup=()=>{isPainting=false;};imggrid.appendChild(d);}
 document.onmouseup=()=>{isPainting=false;};
 function paintImg(i){const hex=document.getElementById('imgcolor').value;imgColors[i]=hex;document.querySelectorAll('#imggrid .matrix-cell')[i].style.background=hex;}
 function sendImage(){const hexes=imgColors.map(c=>c.replace('#',''));cmd('IMAGE '+hexes.join(','));}
-function clearImage(){for(let i=0;i<256;i++){imgColors[i]='#000000';document.querySelectorAll('#imggrid .matrix-cell')[i].style.background='#000';}toast('Cleared');}
+function clearImage(){for(let i=0;i<512;i++){imgColors[i]='#000000';document.querySelectorAll('#imggrid .matrix-cell')[i].style.background='#000';}toast('Cleared');}
 refreshState();
 </script></body></html>"""
 

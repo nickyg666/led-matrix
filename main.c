@@ -12,9 +12,9 @@
 #include "font5x7.h"
 
 /* ---------- Configuration ---------- */
-#define NUM_COLS   32
+#define NUM_COLS   64
 #define NUM_ROWS   8
-#define NUM_LEDS   (NUM_COLS * NUM_ROWS)  /* 256 */
+#define NUM_LEDS   (NUM_COLS * NUM_ROWS)  /* 512 */
 #define DATA_PIN   10
 #define PIO_FREQ   800000.0f
 
@@ -147,8 +147,8 @@ static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
             }
         }
         for (int row = 0; row < 7; row++) {
-            if (coldata & (1 << row) && row < 5) {
-                int i = idx(px, row + 1);
+            if (coldata & (1 << row) && row < 7) {
+                int i = idx(px, row);
                 if (i >= 0) pixels[i] = pack(rr, gg, bb);
             }
         }
