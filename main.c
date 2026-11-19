@@ -35,6 +35,7 @@ static int  text_len = 0;
 static int  scroll_x = 0;  /* current scroll offset in pixels */
 static int  text_width = 0; /* total width of text in pixels */
 static uint8_t text_color_r = 255, text_color_g = 255, text_color_b = 255;
+static uint8_t text_rainbow = 0;
 static uint8_t bg_color_r = 0, bg_color_g = 0, bg_color_b = 0;
 static int  text_dir = 1;  /* 1=left, -1=right */
 
@@ -130,10 +131,25 @@ static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
         uint8_t coldata = font5x7[ci][col];
         int px = x + col;
         if (px < 0 || px >= NUM_COLS) continue;
+        uint8_t rr = r, gg = g, bb = b;
+        if (text_rainbow) {
+            uint8_t hue = (anim_tick * 3 + px * 8) & 0xFF;
+            uint8_t region = hue / 43;
+            uint8_t rem = (hue % 43) * 6;
+            uint8_t p = 0, q = 255 - rem, t = rem;
+            switch (region) {
+                case 0: rr=255; gg=t; bb=p; break;
+                case 1: rr=q; gg=255; bb=p; break;
+                case 2: rr=p; gg=255; bb=t; break;
+                case 3: rr=p; gg=q; bb=255; break;
+                case 4: rr=t; gg=p; bb=255; break;
+                default: rr=255; gg=p; bb=q; break;
+            }
+        }
         for (int row = 0; row < 7; row++) {
             if (coldata & (1 << row)) {
                 int i = idx(px, row);
-                if (i >= 0) pixels[i] = pack(r, g, b);
+                if (i >= 0) pixels[i] = pack(rr, gg, bb);
             }
         }
     }
@@ -348,6 +364,12 @@ static void process_cmd(const char *cmd) {
             anim_speed = (uint8_t)s;
             printf("OK SPEED=%d\n", s);
         }
+    } else if (strncmp(cmd, "RAINBOWTEXT", 11) == 0) {
+        text_rainbow = 1;
+        printf("OK rainbow text on\n");
+    } else if (strncmp(cmd, "RAINBOWTEXTOFF", 14) == 0) {
+        text_rainbow = 0;
+        printf("OK rainbow text off\n");
     } else if (strncmp(cmd, "DIR", 3) == 0 && cmd[3] == ' ') {
         int d;
         if (sscanf(cmd + 3, "%d", &d) == 1) {
@@ -408,6 +430,8 @@ static void process_cmd(const char *cmd) {
         printf("  BRIGHT <0-255>   Brightness\n");
         printf("  SPEED <1-255>    Scroll/anim speed (1=slow)\n");
         printf("  DIR <1|-1>       Scroll direction (1=left, -1=right)\n");
+        printf("  RAINBOWTEXT      Enable rainbow colors on text\n");
+        printf("  RAINBOWTEXTOFF   Disable rainbow colors on text\n");
         printf("  CLEAR            Clear display\n");
         printf("  OFF / ON         Power off/on\n");
         printf("  PING / BOOT / HELP\n");
