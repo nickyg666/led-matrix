@@ -37,7 +37,8 @@ static int  text_width = 0; /* total width of text in pixels */
 static uint8_t text_color_r = 255, text_color_g = 255, text_color_b = 255;
 static uint8_t text_rainbow = 0;
 static uint8_t bg_color_r = 0, bg_color_g = 0, bg_color_b = 0;
-static int  text_dir = 1;  /* 1=left-to-right (scroll right), -1=right-to-left */
+static int  text_dir = 1;  /* 1=left-to-right, -1=right-to-left */
+static int  mirror_second = 1;  /* mirror second strip for physical layout */
 
 static uint32_t image_buf[NUM_LEDS];
 static bool has_image = false;
@@ -73,7 +74,11 @@ static inline uint32_t pack(uint8_t r, uint8_t g, uint8_t b) {
 /* (x,y) -> LED index. LEDs chained vertically: each column is 8 LEDs */
 static inline int idx(int x, int y) {
     if (x < 0 || x >= NUM_COLS || y < 0 || y >= NUM_ROWS) return -1;
-    return x * NUM_ROWS + y;
+    int col = x;
+    if (mirror_second && col >= 32) {
+        col = 63 - (col - 32);  /* mirror second strip */
+    }
+    return col * NUM_ROWS + y;
 }
 
 static uint8_t rand8(void) {
@@ -116,8 +121,8 @@ static int char_width(char c) {
 static int text_pixel_width(const char *s) {
     int w = 0;
     for (int i = 0; s[i]; i++) {
-        if (s[i] == ' ') w += 4;
-        else w += 6; /* 5 + 1 space */
+        if (s[i] == ' ') w += 8;
+        else w += 12; /* 10 + 2 space */
     }
     if (w > 0) w -= 1; /* trailing space removed */
     return w;
@@ -129,11 +134,11 @@ static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
     int ci = c - 32;
     for (int col = 0; col < 5; col++) {
         uint8_t coldata = font5x7[ci][col];
-        int px = x + col;
+        int px = x + col * 2;
         if (px < 0 || px >= NUM_COLS) continue;
         uint8_t rr = r, gg = g, bb = b;
         if (text_rainbow) {
-            uint8_t hue = (anim_tick * 2 + px * 12) & 0xFF;
+            uint8_t hue = (anim_tick * 2 + (x / 2) * 12) & 0xFF;
             uint8_t region = hue / 43;
             uint8_t rem = (hue % 43) * 6;
             uint8_t p = 0, q = 255 - rem, t = rem;
@@ -147,9 +152,14 @@ static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
             }
         }
         for (int row = 0; row < 7; row++) {
-            if (coldata & (1 << row) && row < 7) {
-                int i = idx(px, row);
-                if (i >= 0) pixels[i] = pack(rr, gg, bb);
+            if (coldata & (1 << row)) {
+                /* 2x2 scaling */
+                for (int dy = 0; dy < 2; dy++) {
+                    for (int dx = 0; dx < 2; dx++) {
+                        int i = idx(px + dx, row * 2 + dy);
+                        if (i >= 0 && (row * 2 + dy) < NUM_ROWS) pixels[i] = pack(rr, gg, bb);
+                    }
+                }
             }
         }
     }
@@ -370,6 +380,9 @@ static void process_cmd(const char *cmd) {
     } else if (strncmp(cmd, "RAINBOWTEXTOFF", 14) == 0) {
         text_rainbow = 0;
         printf("OK rainbow text off\n");
+    } else if (strncmp(cmd, "MIRROR", 6) == 0) {
+        mirror_second = !mirror_second;
+        printf("OK MIRROR=%d\n", mirror_second);
     } else if (strncmp(cmd, "DIR", 3) == 0 && cmd[3] == ' ') {
         int d;
         if (sscanf(cmd + 3, "%d", &d) == 1) {
@@ -430,6 +443,7 @@ static void process_cmd(const char *cmd) {
         printf("  BRIGHT <0-255>   Brightness\n");
         printf("  SPEED <1-255>    Scroll/anim speed (1=slow)\n");
         printf("  DIR <1|-1>       Scroll direction (1=left, -1=right)\n");
+        printf("  MIRROR           Toggle mirror second strip\n");
         printf("  RAINBOWTEXT      Enable rainbow colors on text\n");
         printf("  RAINBOWTEXTOFF   Disable rainbow colors on text\n");
         printf("  CLEAR            Clear display\n");
