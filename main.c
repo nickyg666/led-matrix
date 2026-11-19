@@ -9,7 +9,7 @@
 #include "hardware/clocks.h"
 #include "ws2812.pio.h"
 
-#include "font5x7.h"
+#include "font5x8.h"
 
 /* ---------- Configuration ---------- */
 #define NUM_COLS   64
@@ -39,8 +39,8 @@ static uint8_t text_rainbow = 0;
 static uint8_t bg_color_r = 0, bg_color_g = 0, bg_color_b = 0;
 static int  text_dir = 1;  /* 1=left-to-right, -1=right-to-left */
 static int  mirror_second = 0;  /* mirror second strip for physical layout */
-static int  text_baseline = 1;  /* font rows 0-6 -> display rows 1-7 */
-static int  vflip = 0;  /* 1 = flip font vertically */
+static int  text_baseline = 0;  /* vertical shift after mapping */
+static int  vflip = 1;  /* 1 = font row 0 maps to display row 7 */
 
 static uint32_t image_buf[NUM_LEDS];
 static bool has_image = false;
@@ -135,33 +135,32 @@ static int text_pixel_width(const char *s) {
 static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
     if (c < 32 || c > 126) return;
     int ci = c - 32;
-    for (int col = 0; col < 5; col++) {
-        uint8_t coldata = font5x7[ci][col];
-        int px = x + col;
-        if (px < 0 || px >= NUM_COLS) continue;
-        uint8_t rr = r, gg = g, bb = b;
-        if (text_rainbow) {
-            uint8_t hue = (anim_tick * 2 + px * 8) & 0xFF;
-            uint8_t region = hue / 43;
-            uint8_t rem = (hue % 43) * 6;
-            uint8_t p = 0, q = 255 - rem, t = rem;
-            switch (region) {
-                case 0: rr=255; gg=t; bb=p; break;
-                case 1: rr=q; gg=255; bb=p; break;
-                case 2: rr=p; gg=255; bb=t; break;
-                case 3: rr=p; gg=q; bb=255; break;
-                case 4: rr=t; gg=p; bb=255; break;
-                default: rr=255; gg=p; bb=q; break;
+    for (int row = 0; row < 8; row++) {
+        uint8_t bits = font5x8[ci][row];
+        int y = vflip ? (NUM_ROWS - 1 - row) : row;
+        y += text_baseline;
+        if (y < 0 || y >= NUM_ROWS) continue;
+        for (int col = 0; col < 5; col++) {
+            if (!(bits & (1 << (4 - col)))) continue;
+            int px = x + col;
+            if (px < 0 || px >= NUM_COLS) continue;
+            uint8_t rr = r, gg = g, bb = b;
+            if (text_rainbow) {
+                uint8_t hue = (anim_tick * 2 + px * 8) & 0xFF;
+                uint8_t region = hue / 43;
+                uint8_t rem = (hue % 43) * 6;
+                uint8_t p = 0, q = 255 - rem, t = rem;
+                switch (region) {
+                    case 0: rr=255; gg=t; bb=p; break;
+                    case 1: rr=q; gg=255; bb=p; break;
+                    case 2: rr=p; gg=255; bb=t; break;
+                    case 3: rr=p; gg=q; bb=255; break;
+                    case 4: rr=t; gg=p; bb=255; break;
+                    default: rr=255; gg=p; bb=q; break;
+                }
             }
-        }
-        for (int row = 0; row < 7; row++) {
-            if (coldata & (1 << row)) {
-                int y = row + text_baseline;
-                if (vflip) y = NUM_ROWS - 1 - row;
-                if (y < 0 || y >= NUM_ROWS) continue;
-                int i = idx(px, y);
-                if (i >= 0) pixels[i] = pack(rr, gg, bb);
-            }
+            int i = idx(px, y);
+            if (i >= 0) pixels[i] = pack(rr, gg, bb);
         }
     }
 }
