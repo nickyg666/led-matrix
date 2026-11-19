@@ -38,7 +38,7 @@ static uint8_t text_color_r = 255, text_color_g = 255, text_color_b = 255;
 static uint8_t text_rainbow = 0;
 static uint8_t bg_color_r = 0, bg_color_g = 0, bg_color_b = 0;
 static int  text_dir = 1;  /* 1=left-to-right, -1=right-to-left */
-static int  mirror_second = 1;  /* mirror second strip for physical layout */
+static int  mirror_second = 0;  /* mirror second strip for physical layout */
 
 static uint32_t image_buf[NUM_LEDS];
 static bool has_image = false;
@@ -121,8 +121,8 @@ static int char_width(char c) {
 static int text_pixel_width(const char *s) {
     int w = 0;
     for (int i = 0; s[i]; i++) {
-        if (s[i] == ' ') w += 8;
-        else w += 12; /* 10 + 2 space */
+        if (s[i] == ' ') w += 4;
+        else w += 6; /* 5 + 1 space */
     }
     if (w > 0) w -= 1; /* trailing space removed */
     return w;
@@ -134,11 +134,11 @@ static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
     int ci = c - 32;
     for (int col = 0; col < 5; col++) {
         uint8_t coldata = font5x7[ci][col];
-        int px = x + col * 2;
+        int px = x + col;
         if (px < 0 || px >= NUM_COLS) continue;
         uint8_t rr = r, gg = g, bb = b;
         if (text_rainbow) {
-            uint8_t hue = (anim_tick * 2 + (x / 2) * 12) & 0xFF;
+            uint8_t hue = (anim_tick * 2 + px * 8) & 0xFF;
             uint8_t region = hue / 43;
             uint8_t rem = (hue % 43) * 6;
             uint8_t p = 0, q = 255 - rem, t = rem;
@@ -153,13 +153,8 @@ static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
         }
         for (int row = 0; row < 7; row++) {
             if (coldata & (1 << row)) {
-                /* 2x2 scaling */
-                for (int dy = 0; dy < 2; dy++) {
-                    for (int dx = 0; dx < 2; dx++) {
-                        int i = idx(px + dx, row * 2 + dy);
-                        if (i >= 0 && (row * 2 + dy) < NUM_ROWS) pixels[i] = pack(rr, gg, bb);
-                    }
-                }
+                int i = idx(px, row);
+                if (i >= 0) pixels[i] = pack(rr, gg, bb);
             }
         }
     }
@@ -460,7 +455,7 @@ int main(void) {
     sleep_ms(800);
 
     strip_init();
-    strcpy(text_buf, "HELLO WORLD  ");
+    strcpy(text_buf, "TEST  ");
     text_len = strlen(text_buf);
     text_width = text_pixel_width(text_buf);
     scroll_x = -text_width;
