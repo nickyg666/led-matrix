@@ -37,7 +37,7 @@ static int  text_width = 0; /* total width of text in pixels */
 static uint8_t text_color_r = 255, text_color_g = 255, text_color_b = 255;
 static uint8_t text_rainbow = 0;
 static uint8_t bg_color_r = 0, bg_color_g = 0, bg_color_b = 0;
-static int  text_dir = 1;  /* 1=left, -1=right */
+static int  text_dir = 1;  /* 1=left-to-right (scroll right), -1=right-to-left */
 
 static uint32_t image_buf[NUM_LEDS];
 static bool has_image = false;
@@ -133,7 +133,7 @@ static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
         if (px < 0 || px >= NUM_COLS) continue;
         uint8_t rr = r, gg = g, bb = b;
         if (text_rainbow) {
-            uint8_t hue = (anim_tick * 3 + px * 8) & 0xFF;
+            uint8_t hue = (anim_tick * 2 + px * 12) & 0xFF;
             uint8_t region = hue / 43;
             uint8_t rem = (hue % 43) * 6;
             uint8_t p = 0, q = 255 - rem, t = rem;
@@ -147,8 +147,8 @@ static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
             }
         }
         for (int row = 0; row < 7; row++) {
-            if (coldata & (1 << row)) {
-                int i = idx(px, row);
+            if (coldata & (1 << row) && row < 5) {
+                int i = idx(px, row + 1);
                 if (i >= 0) pixels[i] = pack(rr, gg, bb);
             }
         }
@@ -323,7 +323,7 @@ static void process_cmd(const char *cmd) {
         text_buf[TEXT_BUF - 1] = '\0';
         text_len = strlen(text_buf);
         text_width = text_pixel_width(text_buf);
-        scroll_x = NUM_COLS; /* start off-screen right */
+        scroll_x = -text_width; /* start off-screen right */
         anim_mode = 0;
         printf("OK TEXT=%s (width=%d)\n", text_buf, text_width);
     } else if (strncmp(cmd, "COLOR", 5) == 0 && cmd[5] == ' ') {
@@ -449,7 +449,7 @@ int main(void) {
     strcpy(text_buf, "HELLO WORLD  ");
     text_len = strlen(text_buf);
     text_width = text_pixel_width(text_buf);
-    scroll_x = NUM_COLS;
+    scroll_x = -text_width;
 
     printf("LED Matrix 8x32 ready\n");
     fflush(stdout);

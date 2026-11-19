@@ -160,6 +160,10 @@ select{cursor:pointer;min-width:120px}
     <button class="btn btn-sm" onclick="applyBg()">Set BG</button>
   </div>
   <div class="row">
+    <button class="btn btn-sm" onclick="cmd('RAINBOWTEXT')">Rainbow Text ON</button>
+    <button class="btn btn-sm btn-ghost" onclick="cmd('RAINBOWTEXTOFF')">Rainbow Text OFF</button>
+  </div>
+  <div class="row">
     <span class="label">Direction</span>
     <button class="btn btn-sm btn-ghost" onclick="cmd('DIR 1')">Left</button>
     <button class="btn btn-sm btn-ghost" onclick="cmd('DIR -1')">Right</button>
