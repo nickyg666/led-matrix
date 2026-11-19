@@ -42,6 +42,11 @@ static int  mirror_second = 0;  /* mirror second strip for physical layout */
 static int  text_baseline = 0;  /* vertical shift after mapping */
 static int  vflip = 0;  /* 1 = font row 0 maps to display row 7 */
 static int  serpentine = 1;  /* 1 = odd columns run bottom-to-top */
+static int  layout = 0;  /* 0 = 8x64, 1 = 16x32 */
+static int  disp_w = 64, disp_h = 8;
+static volatile int img_recv = 0;
+static int img_idx = 0;
+static uint8_t img_bytes[NUM_LEDS * 3];
 
 static uint32_t image_buf[NUM_LEDS];
 static bool has_image = false;
@@ -84,6 +89,25 @@ static inline int idx(int x, int y) {
     int py = y;
     if (serpentine && (col & 1)) py = NUM_ROWS - 1 - py;
     return col * NUM_ROWS + py;
+}
+
+/* Logical (x,y) -> physical LED index, honoring layout + serpentine */
+static inline int mapxy(int x, int y) {
+    if (x < 0 || x >= disp_w || y < 0 || y >= disp_h) return -1;
+    int px, py;
+    if (layout == 0) {
+        px = x;
+        py = y;
+    } else {
+        int strip = y / 8;
+        px = x + strip * 32;
+        py = y % 8;
+    }
+    int col = px;
+    if (mirror_second && col >= 32) col = 63 - (col - 32);
+    int phys_y = py;
+    if (serpentine && (col & 1)) phys_y = NUM_ROWS - 1 - phys_y;
+    return col * NUM_ROWS + phys_y;
 }
 
 static uint8_t rand8(void) {
@@ -162,7 +186,7 @@ static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
                     default: rr=255; gg=p; bb=q; break;
                 }
             }
-            int i = idx(px, y);
+            int i = mapxy(px, y);
             if (i >= 0) pixels[i] = pack(rr, gg, bb);
         }
     }
@@ -186,7 +210,7 @@ static void render_text(void) {
 
 /* ---------- Effects ---------- */
 static void fx_rainbow(void) {
-    for (int col = 0; col < NUM_COLS; col++) {
+    for (int col = 0; col < disp_w; col++) {
         uint8_t hue = (anim_tick + col * 8) & 0xFF;
         /* simple HSV to RGB */
         uint8_t r, g, b;
@@ -201,8 +225,8 @@ static void fx_rainbow(void) {
             case 4: r=t; g=p; b=255; break;
             default: r=255; g=p; b=q; break;
         }
-        for (int row = 0; row < NUM_ROWS; row++) {
-            int i = idx(col, row);
+        for (int row = 0; row < disp_h; row++) {
+            int i = mapxy(col, row);
             if (i >= 0) pixels[i] = pack(r, g, b);
         }
     }
@@ -219,13 +243,13 @@ static void fx_pulse(void) {
 }
 
 static void fx_wave(void) {
-    for (int col = 0; col < NUM_COLS; col++) {
+    for (int col = 0; col < disp_w; col++) {
         uint8_t v = (sin_tab[(anim_tick + col * 4) & 0xFF]) ;
         uint8_t r = (v * text_color_r) / 255;
         uint8_t g = (v * text_color_g) / 255;
         uint8_t b = (v * text_color_b) / 255;
-        for (int row = 0; row < NUM_ROWS; row++) {
-            int i = idx(col, row);
+        for (int row = 0; row < disp_h; row++) {
+            int i = mapxy(col, row);
             if (i >= 0) pixels[i] = pack(r, g, b);
         }
     }
@@ -242,31 +266,31 @@ static void fx_matrix(void) {
     }
     /* new drops */
     if (rand8() < 40) {
-        int col = rand8() % NUM_COLS;
+        int col = rand8() % disp_w;
         pixels[idx(col, 0)] = pack(0, 255, 0);
     }
     /* move drops down */
     for (int col = 0; col < NUM_COLS; col++) {
         for (int row = NUM_ROWS - 1; row > 0; row--) {
-            int i = idx(col, row);
+            int i = mapxy(col, row);
             int above = idx(col, row - 1);
             if (i >= 0 && above >= 0) pixels[i] = pixels[above];
         }
-        int top = idx(col, 0);
+        int top = mapxy(col, 0);
         if (top >= 0 && (rand8() < 30)) pixels[top] = 0;
     }
 }
 
 static void fx_plasma(void) {
-    for (int col = 0; col < NUM_COLS; col++) {
-        for (int row = 0; row < NUM_ROWS; row++) {
+    for (int col = 0; col < disp_w; col++) {
+        for (int row = 0; row < disp_h; row++) {
             uint8_t v1 = (sin_tab[(col * 8 + anim_tick * 2) & 0xFF]);
             uint8_t v2 = (sin_tab[(row * 16 - anim_tick * 3) & 0xFF]);
             uint8_t v = (v1 + v2) / 2;
             uint8_t r = sin_tab[v];
             uint8_t g = sin_tab[(v + 85) & 0xFF];
             uint8_t b = sin_tab[(v + 170) & 0xFF];
-            int i = idx(col, row);
+            int i = mapxy(col, row);
             if (i >= 0) pixels[i] = pack(r, g, b);
         }
     }
@@ -288,11 +312,11 @@ static void fx_sparkle(void) {
 
 static void fx_fire(void) {
     /* simple fire: bottom row hot, fade up */
-    for (int col = 0; col < NUM_COLS; col++) {
+    for (int col = 0; col < disp_w; col++) {
         /* random spark at bottom */
         if (rand8() < 80) {
             uint8_t v = 180 + (rand8() % 75);
-            pixels[idx(col, NUM_ROWS-1)] = pack(v, v/3, 0);
+            pixels[mapxy(col, disp_h-1)] = pack(v, v/3, 0);
         }
     }
     /* propagate up with decay */
@@ -314,7 +338,7 @@ static void fx_fire(void) {
                                         (b + (pixels[idx(left,row+1)]>>8&0xFF) + (pixels[idx(right,row+1)]>>8&0xFF))/3);
         }
         /* top row fade */
-        int top = idx(col, 0);
+        int top = mapxy(col, 0);
         if (top >= 0) {
             uint32_t p = pixels[top];
             pixels[top] = pack(((p>>16)&0xFF)*8/10, ((p>>24)&0xFF)*8/10, ((p>>8)&0xFF)*8/10);
@@ -407,6 +431,23 @@ static void process_cmd(const char *cmd) {
             text_dir = (d >= 0) ? 1 : -1;
             printf("OK DIR=%d\n", text_dir);
         }
+    } else if (strncmp(cmd, "LAYOUT", 6) == 0 && cmd[6] == ' ') {
+        int l;
+        if (sscanf(cmd + 6, "%d", &l) == 1 && (l == 0 || l == 1)) {
+            layout = l;
+            disp_w = l ? 32 : 64;
+            disp_h = l ? 16 : 8;
+            scroll_x = -text_width;
+            printf("OK LAYOUT=%dx%d\n", disp_w, disp_h);
+        } else {
+            printf("ERR: LAYOUT 0 (8x64) or 1 (16x32)\n");
+        }
+    } else if (strcmp(cmd, "IMGB") == 0) {
+        img_recv = 1;
+        img_idx = 0;
+    } else if (strcmp(cmd, "STATE") == 0) {
+        printf("STATE layout=%dx%d anim=%d speed=%d bright=%d len=%d\n",
+               disp_w, disp_h, anim_mode, anim_speed, brightness, text_len);
     } else if (strncmp(cmd, "IMAGE", 5) == 0 && (cmd[5] == ' ' || cmd[5] == '\0')) {
         const char *p = cmd + 5;
         while (*p == ' ') p++;
@@ -461,6 +502,9 @@ static void process_cmd(const char *cmd) {
         printf("  BRIGHT <0-255>   Brightness\n");
         printf("  SPEED <1-255>    Scroll/anim speed (1=slow)\n");
         printf("  DIR <1|-1>       Scroll direction (1=left, -1=right)\n");
+        printf("  LAYOUT 0|1       8x64 (0) or 16x32 (1)\n");
+        printf("  IMGB             Binary frame (512*3 bytes)\n");
+        printf("  STATE            Current state\n");
         printf("  MIRROR           Toggle mirror second strip\n");
         printf("  VFLIP            Flip text vertically\n");
         printf("  SERP             Toggle serpentine columns\n");
@@ -486,7 +530,7 @@ int main(void) {
     text_width = text_pixel_width(text_buf);
     scroll_x = -text_width;
 
-    printf("LED Matrix 8x32 ready\n");
+    printf("LED Matrix ready\n");
     fflush(stdout);
     sleep_ms(200);
 
@@ -495,6 +539,27 @@ int main(void) {
     last_anim = time_us_64();
 
     while (true) {
+        if (img_recv) {
+            int c = getchar_timeout_us(1000);
+            if (c != PICO_ERROR_TIMEOUT) {
+                if (img_idx < NUM_LEDS * 3) img_bytes[img_idx++] = (uint8_t)c;
+                if (img_idx >= NUM_LEDS * 3) {
+                    clear_pixels();
+                    for (int y = 0; y < disp_h; y++) {
+                        for (int x = 0; x < disp_w; x++) {
+                            int bi = (y * disp_w + x) * 3;
+                            int pi = mapxy(x, y);
+                            if (pi >= 0)
+                                pixels[pi] = pack(img_bytes[bi], img_bytes[bi+1], img_bytes[bi+2]);
+                        }
+                    }
+                    img_recv = 0;
+                    anim_mode = 8;
+                    printf("OK IMGB=%d\n", NUM_LEDS);
+                    fflush(stdout);
+                }
+            }
+        } else {
         int c = getchar_timeout_us(200);
         if (c != PICO_ERROR_TIMEOUT) {
             if (c == '\n' || c == '\r') {
@@ -506,6 +571,7 @@ int main(void) {
             }
         }
 
+        }
         uint64_t now = time_us_64();
         uint32_t interval = 1000000 / (anim_speed * 2 + 1); /* ~14ms at speed 5 */
         if (now - last_anim >= interval) {
@@ -515,8 +581,8 @@ int main(void) {
             /* Update scroll position for text mode */
             if (anim_mode == 0) {
                 scroll_x += text_dir;
-                if (scroll_x < -text_width) scroll_x = NUM_COLS;
-                if (scroll_x > NUM_COLS + text_width) scroll_x = -text_width;
+                if (scroll_x < -text_width) scroll_x = disp_w;
+                if (scroll_x > disp_w + text_width) scroll_x = -text_width;
                 render_text();
             } else if (anim_mode == 1) fx_rainbow();
             else if (anim_mode == 2) fx_pulse();
