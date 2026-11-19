@@ -39,6 +39,8 @@ static uint8_t text_rainbow = 0;
 static uint8_t bg_color_r = 0, bg_color_g = 0, bg_color_b = 0;
 static int  text_dir = 1;  /* 1=left-to-right, -1=right-to-left */
 static int  mirror_second = 0;  /* mirror second strip for physical layout */
+static int  text_baseline = 1;  /* font rows 0-6 -> display rows 1-7 */
+static int  vflip = 0;  /* 1 = flip font vertically */
 
 static uint32_t image_buf[NUM_LEDS];
 static bool has_image = false;
@@ -154,7 +156,10 @@ static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
         }
         for (int row = 0; row < 7; row++) {
             if (coldata & (1 << row)) {
-                int i = idx(px, row);
+                int y = row + text_baseline;
+                if (vflip) y = NUM_ROWS - 1 - row;
+                if (y < 0 || y >= NUM_ROWS) continue;
+                int i = idx(px, y);
                 if (i >= 0) pixels[i] = pack(rr, gg, bb);
             }
         }
@@ -380,6 +385,17 @@ static void process_cmd(const char *cmd) {
     } else if (strncmp(cmd, "MIRROR", 6) == 0) {
         mirror_second = !mirror_second;
         printf("OK MIRROR=%d\n", mirror_second);
+    } else if (strncmp(cmd, "VFLIP", 5) == 0) {
+        vflip = !vflip;
+        printf("OK VFLIP=%d\n", vflip);
+    } else if (strncmp(cmd, "BASE", 4) == 0 && cmd[4] == ' ') {
+        int b;
+        if (sscanf(cmd + 4, "%d", &b) == 1 && b >= 0 && b <= 1) {
+            text_baseline = b;
+            printf("OK BASE=%d\n", b);
+        } else {
+            printf("ERR: BASE 0 or 1\n");
+        }
     } else if (strncmp(cmd, "DIR", 3) == 0 && cmd[3] == ' ') {
         int d;
         if (sscanf(cmd + 3, "%d", &d) == 1) {
@@ -441,6 +457,8 @@ static void process_cmd(const char *cmd) {
         printf("  SPEED <1-255>    Scroll/anim speed (1=slow)\n");
         printf("  DIR <1|-1>       Scroll direction (1=left, -1=right)\n");
         printf("  MIRROR           Toggle mirror second strip\n");
+        printf("  VFLIP            Flip text vertically\n");
+        printf("  BASE <0|1>       Text baseline row offset\n");
         printf("  RAINBOWTEXT      Enable rainbow colors on text\n");
         printf("  RAINBOWTEXTOFF   Disable rainbow colors on text\n");
         printf("  CLEAR            Clear display\n");
