@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""matrixctl — CLI for the RP2040 8x32 LED matrix controller."""
+import argparse
+import glob
+import os
+import select
+import sys
+import termios
+import time
+
+DEVICE_GLOB = "/dev/ttyACM*"
+VERSION = "1.0"
+
+
+def find_device():
+    devices = sorted(glob.glob(DEVICE_GLOB))
+    return devices[0] if devices else None
+
+
+def setup_port(fd):
+    attrs = termios.tcgetattr(fd)
+    attrs[1] = termios.OPOST | termios.ONLCR
+    attrs[3] = termios.CREAD | termios.CLOCAL
+    attrs[6][termios.VMIN] = 0
+    attrs[6][termios.VTIME] = 1
+    termios.tcsetattr(fd, termios.TCSANOW, attrs)
+
+
+def send(device, cmd):
+    fd = os.open(device, os.O_RDWR | os.O_NOCTTY)
+    try:
+        setup_port(fd)
+        os.write(fd, (cmd + "\r\n").encode())
+        time.sleep(0.1)
+        resp = b""
+        while True:
+            r, _, _ = select.select([fd], [], [], 0.5)
+            if not r:
+                break
+            n = os.read(fd, 4096)
+            if len(n) <= 0:
+                break
+            resp += n
+        for line in resp.decode(errors="replace").splitlines():
+            print(line.strip())
+    finally:
+        os.close(fd)
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="matrixctl", description="RP2040 8x32 LED Matrix Controller CLI")
+    parser.add_argument("-V", "--version", action="version", version=f"matrixctl {VERSION}")
+    parser.add_argument("-d", "--device", help="Serial device (auto-detected if omitted)")
+    parser.add_argument("command", nargs="?", default="PING", help="Command to send")
+    parser.add_argument("args", nargs="*", help="Command arguments")
+    args = parser.parse_args()
+
+    device = args.device or find_device()
+    if not device:
+        print("ERR: no serial device found", file=sys.stderr)
+        return 1
+
+    cmd = args.command
+    for a in args.args:
+        cmd += " " + str(a)
+    return send(device, cmd)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
