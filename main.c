@@ -23,9 +23,9 @@
 
 /* ---------- State ---------- */
 static uint32_t pixels[NUM_LEDS];
-static uint8_t  brightness = 128;
+static uint8_t  brightness = 26;
 static uint8_t  anim_mode = 0;  /* 0=text,1=rainbow,2=pulse,3=wave,4=fire,5=matrix,6=plasma,7=sparkle */
-static uint8_t  anim_speed = 8; /* 1-255, lower=slower */
+static uint8_t  anim_speed = 24; /* 1-255, lower=slower */
 static uint32_t anim_tick = 0;
 static uint64_t last_anim = 0;
 static uint32_t rng = 2463534242u;
@@ -101,7 +101,7 @@ static void strip_init(void) {
 }
 
 static void strip_show(void) {
-    if (brightness > 128) brightness = 128;
+    if (brightness > 26) brightness = 26;
     if (brightness == 0) {
         for (int i = 0; i < NUM_LEDS; i++) pio_sm_put_blocking(strip_pio, strip_sm, 0);
         return;
@@ -365,7 +365,7 @@ static void process_cmd(const char *cmd) {
     } else if (strncmp(cmd, "BRIGHT", 6) == 0 && cmd[6] == ' ') {
         int b;
         if (sscanf(cmd + 6, "%d", &b) == 1 && b >= 0 && b <= 255) {
-            if (b > 128) b = 128;
+            if (b > 26) b = 26;
             brightness = (uint8_t)b;
             printf("OK BRIGHT=%d\n", b);
         }
@@ -437,7 +437,7 @@ static void process_cmd(const char *cmd) {
         brightness = 0;
         printf("OK off\n");
     } else if (strcmp(cmd, "ON") == 0) {
-        brightness = 128;
+        brightness = 26;
         printf("OK on\n");
     } else if (strcmp(cmd, "PING") == 0) {
         printf("PONG\n");
