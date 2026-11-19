@@ -376,12 +376,12 @@ static void process_cmd(const char *cmd) {
             anim_speed = (uint8_t)s;
             printf("OK SPEED=%d\n", s);
         }
-    } else if (strncmp(cmd, "RAINBOWTEXT", 11) == 0) {
-        text_rainbow = 1;
-        printf("OK rainbow text on\n");
     } else if (strncmp(cmd, "RAINBOWTEXTOFF", 14) == 0) {
         text_rainbow = 0;
         printf("OK rainbow text off\n");
+    } else if (strncmp(cmd, "RAINBOWTEXT", 11) == 0) {
+        text_rainbow = 1;
+        printf("OK rainbow text on\n");
     } else if (strncmp(cmd, "MIRROR", 6) == 0) {
         mirror_second = !mirror_second;
         printf("OK MIRROR=%d\n", mirror_second);
