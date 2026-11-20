@@ -168,8 +168,10 @@ static int text_pixel_width(const char *s) {
 static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
     if (c < 32 || c > 126) return;
     int ci = c - 32;
+    /* idispatch font stores glyphs in rows 2..6; stretch to all 8 rows */
+    static const uint8_t rowmap[8] = {2, 3, 3, 4, 5, 5, 6, 6};
     for (int row = 0; row < 8; row++) {
-        uint8_t bits = font5x8[ci][row];
+        uint8_t bits = font5x8[ci][rowmap[row]];
         int y = vflip ? (NUM_ROWS - 1 - row) : row;
         y += text_baseline;
         if (y < 0 || y >= NUM_ROWS) continue;
