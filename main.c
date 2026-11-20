@@ -25,6 +25,7 @@
 static uint32_t pixels[NUM_LEDS];
 static uint16_t dither_err[NUM_LEDS][3];
 static uint8_t  brightness = 26;
+static uint8_t  fine_dim = 255;  /* 0-255 sub-brightness for very low levels */
 static uint8_t  anim_mode = 0;  /* 0=text,1=rainbow,2=pulse,3=wave,4=fire,5=matrix,6=plasma,7=sparkle */
 static uint8_t  anim_speed = 24; /* 1-255, lower=slower */
 static uint32_t anim_tick = 0;
@@ -137,13 +138,14 @@ static void strip_show(void) {
     }
     for (int i = 0; i < NUM_LEDS; i++) {
         uint32_t p = pixels[i];
+        uint32_t scale = (uint32_t)brightness * fine_dim;
         uint32_t acc;
-        acc = ((p >> 24) & 0xFF) * brightness + dither_err[i][0];
-        uint8_t g = acc / 255; dither_err[i][0] = acc % 255;
-        acc = ((p >> 16) & 0xFF) * brightness + dither_err[i][1];
-        uint8_t r = acc / 255; dither_err[i][1] = acc % 255;
-        acc = ((p >> 8) & 0xFF) * brightness + dither_err[i][2];
-        uint8_t b = acc / 255; dither_err[i][2] = acc % 255;
+        acc = ((p >> 24) & 0xFF) * scale + dither_err[i][0];
+        uint8_t g = acc / 65280; dither_err[i][0] = acc % 65280;
+        acc = ((p >> 16) & 0xFF) * scale + dither_err[i][1];
+        uint8_t r = acc / 65280; dither_err[i][1] = acc % 65280;
+        acc = ((p >> 8) & 0xFF) * scale + dither_err[i][2];
+        uint8_t b = acc / 65280; dither_err[i][2] = acc % 65280;
         pio_sm_put_blocking(strip_pio, strip_sm, pack(r, g, b));
     }
 }
@@ -402,6 +404,14 @@ static void process_cmd(const char *cmd) {
             brightness = (uint8_t)b;
             printf("OK BRIGHT=%d\n", b);
         }
+    } else if (strncmp(cmd, "DIM", 3) == 0 && cmd[3] == ' ') {
+        int d;
+        if (sscanf(cmd + 3, "%d", &d) == 1 && d >= 0 && d <= 255) {
+            fine_dim = (uint8_t)d;
+            printf("OK DIM=%d\n", d);
+        } else {
+            printf("ERR: DIM 0-255\n");
+        }
     } else if (strncmp(cmd, "SPEED", 5) == 0 && cmd[5] == ' ') {
         int s;
         if (sscanf(cmd + 5, "%d", &s) == 1 && s >= 1 && s <= 255) {
@@ -452,8 +462,8 @@ static void process_cmd(const char *cmd) {
         img_recv = 1;
         img_idx = 0;
     } else if (strcmp(cmd, "STATE") == 0) {
-        printf("STATE layout=%dx%d anim=%d speed=%d bright=%d len=%d\n",
-               disp_w, disp_h, anim_mode, anim_speed, brightness, text_len);
+        printf("STATE layout=%dx%d anim=%d speed=%d bright=%d dim=%d len=%d\n",
+               disp_w, disp_h, anim_mode, anim_speed, brightness, fine_dim, text_len);
     } else if (strncmp(cmd, "IMAGE", 5) == 0 && (cmd[5] == ' ' || cmd[5] == '\0')) {
         const char *p = cmd + 5;
         while (*p == ' ') p++;
@@ -505,7 +515,8 @@ static void process_cmd(const char *cmd) {
         printf("  COLOR r g b      Text color\n");
         printf("  BG r g b         Background color\n");
         printf("  EFFECT <name>    text rainbow pulse wave fire matrix plasma sparkle\n");
-        printf("  BRIGHT <0-255>   Brightness\n");
+        printf("  BRIGHT <0-26>    Brightness (capped at 10%%)\n");
+        printf("  DIM <0-255>      Fine dimming below BRIGHT\n");
         printf("  SPEED <1-255>    Scroll/anim speed (1=slow)\n");
         printf("  DIR <1|-1>       Scroll direction (1=left, -1=right)\n");
         printf("  LAYOUT 0|1       8x64 (0) or 16x32 (1)\n");

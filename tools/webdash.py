@@ -184,6 +184,7 @@ canvas{max-width:100%;border:1px solid var(--border);border-radius:7px;backgroun
 <div class="row"><span class="label">Layout</span><button class="btn sm" onclick="layout(0)">8 x 64</button><button class="btn sm" onclick="layout(1)">16 x 32</button></div>
 <div class="row"><span class="label">Brightness</span><input type="range" id="bright" min="0" max="26" value="26" oninput="document.getElementById('bv').textContent=this.value"><span id="bv">26</span><button class="btn sm" onclick="cmd('BRIGHT '+bright.value)">Set</button></div>
 <div class="row"><span class="label">Speed</span><input type="range" id="speed" min="1" max="255" value="24" oninput="document.getElementById('sv').textContent=this.value"><span id="sv">24</span><button class="btn sm" onclick="cmd('SPEED '+speed.value)">Set</button></div>
+<div class="row"><span class="label">Fine dim</span><input type="range" id="dim" min="0" max="255" value="255" oninput="document.getElementById('dv').textContent=this.value"><span id="dv">255</span><button class="btn sm" onclick="cmd('DIM '+dim.value)">Set</button></div>
 <div class="row"><button class="btn sm ghost" onclick="cmd('VFLIP')">VFLIP</button><button class="btn sm ghost" onclick="cmd('SERP')">SERP</button><button class="btn sm ghost" onclick="cmd('MIRROR')">MIRROR</button><button class="btn sm ghost" onclick="cmd('BASE 0')">BASE0</button><button class="btn sm ghost" onclick="cmd('BASE 1')">BASE1</button></div>
 </div><div class="card"><h2>Status</h2><div class="status" id="status">Loading...</div></div></div></div>
 
