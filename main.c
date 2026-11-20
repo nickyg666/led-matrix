@@ -151,14 +151,14 @@ static void strip_show(void) {
 /* ---------- Text rendering ---------- */
 static int char_width(char c) {
     if (c < 32 || c > 126) return 0;
-    return 5; /* 5 px wide + 1 space = 6 */
+    return 8; /* 8 px wide + 1 space = 9 */
 }
 
 static int text_pixel_width(const char *s) {
     int w = 0;
     for (int i = 0; s[i]; i++) {
-        if (s[i] == ' ') w += 4;
-        else w += 6; /* 5 + 1 space */
+        if (s[i] == ' ') w += 5;
+        else w += 9; /* 8 + 1 space */
     }
     if (w > 0) w -= 1; /* trailing space removed */
     return w;
@@ -168,15 +168,13 @@ static int text_pixel_width(const char *s) {
 static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
     if (c < 32 || c > 126) return;
     int ci = c - 32;
-    /* idispatch font stores glyphs in rows 2..6; stretch to all 8 rows */
-    static const uint8_t rowmap[8] = {2, 3, 3, 4, 5, 5, 6, 6};
     for (int row = 0; row < 8; row++) {
-        uint8_t bits = font5x8[ci][rowmap[row]];
+        uint8_t bits = font5x8[ci][row];
         int y = vflip ? (NUM_ROWS - 1 - row) : row;
         y += text_baseline;
         if (y < 0 || y >= NUM_ROWS) continue;
-        for (int col = 0; col < 5; col++) {
-            if (!(bits & (1 << (4 - col)))) continue;
+        for (int col = 0; col < 8; col++) {
+            if (!(bits & (1 << (7 - col)))) continue;
             int px = x + col;
             if (px < 0 || px >= NUM_COLS) continue;
             uint8_t rr = r, gg = g, bb = b;
@@ -210,9 +208,9 @@ static void render_text(void) {
     int x = scroll_x;
     for (int i = 0; i < text_len && text_buf[i]; i++) {
         char c = text_buf[i];
-        if (c == ' ') { x += 4; continue; }
+        if (c == ' ') { x += 5; continue; }
         draw_char(x, c, text_color_r, text_color_g, text_color_b);
-        x += 6;
+        x += 9;
     }
 }
 
