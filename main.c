@@ -23,6 +23,7 @@
 
 /* ---------- State ---------- */
 static uint32_t pixels[NUM_LEDS];
+static uint16_t dither_err[NUM_LEDS][3];
 static uint8_t  brightness = 26;
 static uint8_t  anim_mode = 0;  /* 0=text,1=rainbow,2=pulse,3=wave,4=fire,5=matrix,6=plasma,7=sparkle */
 static uint8_t  anim_speed = 24; /* 1-255, lower=slower */
@@ -130,14 +131,19 @@ static void strip_init(void) {
 static void strip_show(void) {
     if (brightness > 26) brightness = 26;
     if (brightness == 0) {
+        memset(dither_err, 0, sizeof(dither_err));
         for (int i = 0; i < NUM_LEDS; i++) pio_sm_put_blocking(strip_pio, strip_sm, 0);
         return;
     }
     for (int i = 0; i < NUM_LEDS; i++) {
         uint32_t p = pixels[i];
-        uint8_t g = ((p >> 24) & 0xFF) * brightness / 255;
-        uint8_t r = ((p >> 16) & 0xFF) * brightness / 255;
-        uint8_t b = ((p >> 8) & 0xFF) * brightness / 255;
+        uint32_t acc;
+        acc = ((p >> 24) & 0xFF) * brightness + dither_err[i][0];
+        uint8_t g = acc / 255; dither_err[i][0] = acc % 255;
+        acc = ((p >> 16) & 0xFF) * brightness + dither_err[i][1];
+        uint8_t r = acc / 255; dither_err[i][1] = acc % 255;
+        acc = ((p >> 8) & 0xFF) * brightness + dither_err[i][2];
+        uint8_t b = acc / 255; dither_err[i][2] = acc % 255;
         pio_sm_put_blocking(strip_pio, strip_sm, pack(r, g, b));
     }
 }
@@ -573,7 +579,8 @@ int main(void) {
 
         }
         uint64_t now = time_us_64();
-        uint32_t interval = 1000000 / (anim_speed * 2 + 1); /* ~14ms at speed 5 */
+        uint32_t interval = 400000u / anim_speed;
+        if (interval < 20000) interval = 20000; /* 512 LEDs need ~15ms to shift out */
         if (now - last_anim >= interval) {
             last_anim = now;
             anim_tick++;

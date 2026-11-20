@@ -10,6 +10,7 @@ import glob
 import threading
 
 PORT = 8081
+NUM_LEDS = 512
 DEV = None
 LOCK = threading.Lock()
 
@@ -82,7 +83,18 @@ def send_cmd(cmd):
 
 def send_frame(rgb):
     global DEV
-    payload = bytes(rgb)
+    if not isinstance(rgb, list):
+        return "ERR: rgb must be a list"
+    if len(rgb) != NUM_LEDS * 3:
+        return "ERR: expected %d values, got %d" % (NUM_LEDS * 3, len(rgb))
+    safe = []
+    for v in rgb:
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            return "ERR: non-integer color value"
+        safe.append(max(0, min(255, n)))
+    payload = bytes(safe)
     with LOCK:
         if DEV is None:
             DEV = find_device()
@@ -208,7 +220,8 @@ function makeGrid(el){el.innerHTML='';let a=[];for(let i=0;i<W*H;i++){let d=docu
 function buildGrids(){grid=makeGrid(document.getElementById('grid'));makeGrid(document.getElementById('gamegrid'));let c=document.getElementById('gameCanvas');c.width=W*10;c.height=H*10}
 function setPix(x,y,col){if(x<0||x>=W||y<0||y>=H)return;grid[y*W+x]=col}
 function renderGrid(){const el=document.getElementById('grid');for(let i=0;i<grid.length;i++)if(el.children[i])el.children[i].style.background=grid[i]}
-function rgbArray(){let a=[];for(let c of grid){let h=c.replace('#','');a.push(parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16))}return a}
+function hex6(c){let h=String(c||'#000000').replace('#','');if(h.length===3)h=h.split('').map(x=>x+x).join('');if(h.length!==6)h=(h+'000000').slice(0,6);return h}
+function rgbArray(){let a=[];for(let c of grid){let h=hex6(c);a.push(parseInt(h.slice(0,2),16)||0,parseInt(h.slice(2,4),16)||0,parseInt(h.slice(4,6),16)||0)}return a}
 function renderFrame(){fetch('/api/frame',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rgb:rgbArray()})}).then(r=>r.text()).then(t=>log('frame -> '+t.trim()))}
 function clearImage(){grid=grid.map(()=> '#000000');renderGrid()}
 function applyColor(){let h=document.getElementById('tcol').value;cmd('COLOR '+parseInt(h.slice(1,3),16)+' '+parseInt(h.slice(3,5),16)+' '+parseInt(h.slice(5,7),16))}
