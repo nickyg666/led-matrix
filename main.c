@@ -76,6 +76,17 @@ static const uint8_t sin_tab[256] = {
     79,82,85,88,90,93,97,100,103,106,109,112,115,118,121,124
 };
 
+static const uint8_t bayer8[64] = {
+     0,32, 8,40, 2,34,10,42,
+    48,16,56,24,50,18,58,26,
+    12,44, 4,36,14,46, 6,38,
+    60,28,52,20,62,30,54,22,
+     3,35,11,43, 1,33, 9,41,
+    51,19,59,27,49,17,57,25,
+    15,47, 7,39,13,45, 5,37,
+    63,31,55,23,61,29,53,21
+};
+
 /* ---------- Helpers ---------- */
 static inline uint32_t pack(uint8_t r, uint8_t g, uint8_t b) {
     return ((uint32_t)g << 24) | ((uint32_t)r << 16) | ((uint32_t)b << 8);
@@ -139,13 +150,18 @@ static void strip_show(void) {
     for (int i = 0; i < NUM_LEDS; i++) {
         uint32_t p = pixels[i];
         uint32_t scale = (uint32_t)brightness * fine_dim;
-        uint32_t acc;
-        acc = ((p >> 24) & 0xFF) * scale + dither_err[i][0];
-        uint8_t g = acc / 65280; dither_err[i][0] = acc % 65280;
-        acc = ((p >> 16) & 0xFF) * scale + dither_err[i][1];
-        uint8_t r = acc / 65280; dither_err[i][1] = acc % 65280;
-        acc = ((p >> 8) & 0xFF) * scale + dither_err[i][2];
-        uint8_t b = acc / 65280; dither_err[i][2] = acc % 65280;
+        int col = i / NUM_ROWS;
+        int row = i % NUM_ROWS;
+        uint8_t d0 = bayer8[(row & 7) * 8 + (col & 7)];
+        uint8_t d1 = bayer8[((row + 3) & 7) * 8 + ((col + 5) & 7)];
+        uint8_t d2 = bayer8[((row + 5) & 7) * 8 + ((col + 3) & 7)];
+        uint32_t a;
+        a = ((p >> 24) & 0xFF) * scale;
+        uint8_t g = a / 65280; if ((a % 65280) * 64 > d0 * 65280) g++;
+        a = ((p >> 16) & 0xFF) * scale;
+        uint8_t r = a / 65280; if ((a % 65280) * 64 > d1 * 65280) r++;
+        a = ((p >> 8) & 0xFF) * scale;
+        uint8_t b = a / 65280; if ((a % 65280) * 64 > d2 * 65280) b++;
         pio_sm_put_blocking(strip_pio, strip_sm, pack(r, g, b));
     }
 }

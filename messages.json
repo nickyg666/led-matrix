@@ -1,0 +1,8 @@
+{
+  "default": "HELLO",
+  "hello": "HELLO WORLD",
+  "test": "TEST",
+  "welcome": "WELCOME",
+  "error": "ERROR",
+  "ok": "OK"
+}
