@@ -1,6 +1,6 @@
-# RP2040 8x32 LED Matrix Controller
+# RP2350 8x32 LED Matrix Controller
 
-Firmware for RP2040-zero driving an 8x32 addressable LED matrix (WS2812/WS2811).
+Firmware for RP2350 (Pico 2) driving an 8x32 addressable LED matrix (WS2812/WS2811).
 LEDs chained vertically: 8 LEDs per column, 32 columns.
 
 ## Features
@@ -20,7 +20,7 @@ cmake --build build
 Output: build/ledmatrix.uf2
 
 ## Flash
-1. Hold BOOT on RP2040-zero, plug USB, release
+1. Hold BOOT on RP2350 (Pico 2), plug USB, release
 2. Copy build/ledmatrix.uf2 to RPI-RP2 drive
 
 ## Commands (via serial / matrixctl)
