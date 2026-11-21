@@ -1,4 +1,8 @@
 cmake_minimum_required(VERSION 3.13)
+
+# Target RP2350 (Raspberry Pi Pico 2)
+set(PICO_BOARD pico2)
+
 include(pico_sdk_import.cmake)
 
 project(ledmatrix C CXX ASM)
@@ -14,6 +18,6 @@ pico_generate_pio_header(ledmatrix ${CMAKE_CURRENT_SOURCE_DIR}/ws2812.pio)
 target_link_libraries(ledmatrix pico_stdlib hardware_pio)
 
 pico_enable_stdio_usb(ledmatrix 1)
-pico_enable_stdio_uart(ledmatrix 0)
+pico_enable_stdio_uart(ledmatrix 1)
 
 pico_add_extra_outputs(ledmatrix)

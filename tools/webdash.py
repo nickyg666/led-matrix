@@ -70,7 +70,8 @@ def send_cmd(cmd):
                 if not n:
                     break
                 resp += n
-            return resp.decode(errors="replace").strip() or "OK"
+            r = resp.decode(errors="replace").strip()
+            return r if r else "ERR: no response (check wiring/power)"
         except OSError as e:
             DEV = None
             return "err: %s" % e
@@ -121,7 +122,8 @@ def send_frame(rgb):
                 if not n:
                     break
                 resp += n
-            return resp.decode(errors="replace").strip() or "OK"
+            r = resp.decode(errors="replace").strip()
+            return r if r else "ERR: no response (check wiring/power)"
         except OSError as e:
             DEV = None
             return "err: %s" % e
@@ -181,7 +183,8 @@ canvas{max-width:100%;border:1px solid var(--border);border-radius:7px;backgroun
 
 <div id="p-control"><div class="grid"><div class="card"><h2>Power & Layout</h2>
 <div class="row"><button class="btn danger" onclick="cmd('OFF')">Off</button><button class="btn ok" onclick="cmd('ON')">On</button><button class="btn ghost" onclick="cmd('CLEAR')">Clear</button></div>
-<div class="row"><span class="label">Layout</span><button class="btn sm" onclick="layout(0)">8 x 64</button><button class="btn sm" onclick="layout(1)">16 x 32</button></div>
+<div class="row"><span class="label">Layout</span><button class="btn sm" onclick="layout(0)">8 x 64</button><button class="btn sm" onclick="layout(1)">16 x 32</button><button class="btn sm" onclick="layout(2)">8 x 32</button></div>
+<div class="row"><span class="label">Serial</span><select id="sport"><option value="/dev/ttyS0">ttyS0</option><option value="/dev/ttyS2">ttyS2</option><option value="/dev/ttyACM0">ttyACM0</option><option value="/dev/ttyACM1">ttyACM1</option></select><button class="btn sm" onclick="setPort()">Connect</button><span id="portstatus" style="font-size:11px;color:var(--mut);margin-left:8px"></span></div>
 <div class="row"><span class="label">Brightness</span><input type="range" id="bright" min="0" max="26" value="26" oninput="document.getElementById('bv').textContent=this.value"><span id="bv">26</span><button class="btn sm" onclick="cmd('BRIGHT '+bright.value)">Set</button></div>
 <div class="row"><span class="label">Speed</span><input type="range" id="speed" min="1" max="255" value="24" oninput="document.getElementById('sv').textContent=this.value"><span id="sv">24</span><button class="btn sm" onclick="cmd('SPEED '+speed.value)">Set</button></div>
 <div class="row"><span class="label">Fine dim</span><input type="range" id="dim" min="0" max="255" value="255" oninput="document.getElementById('dv').textContent=this.value"><span id="dv">255</span><button class="btn sm" onclick="cmd('DIM '+dim.value)">Set</button></div>
@@ -213,7 +216,8 @@ canvas{max-width:100%;border:1px solid var(--border);border-radius:7px;backgroun
 let W=64,H=8,grid=[],timer=null,game=null,keys={},score=0,lives=3;
 function log(m){const l=document.getElementById('log');l.innerHTML+=m+'<br>';l.scrollTop=l.scrollHeight}
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800)}
-function cmd(c){fetch('/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cmd:c})}).then(r=>r.text()).then(t=>{log('> '+c+' -> '+t.trim());if(c.startsWith('STATE'))document.getElementById('status').textContent=t.trim()})}
+function cmd(c){fetch('/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cmd:c})}).then(r=>r.text()).then(t=>{log('> '+c+' -> '+t.trim());if(c.startsWith('STATE'))document.getElementById('status').textContent=t.trim();if(t.includes('ERR:')||t.includes('no response'))document.getElementById('portstatus').textContent='ERR: '+t.trim()})}
+function setPort(){const p=document.getElementById('sport').value;fetch('/api/port',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({port:p})}).then(r=>r.text()).then(t=>{document.getElementById('portstatus').textContent=t.trim();toast(t.trim())})}
 function refresh(){cmd('STATE')}
 function show(n){document.querySelectorAll('[id^=p-]').forEach(e=>e.style.display='none');document.getElementById('p-'+n).style.display='';document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));document.getElementById('t-'+n).classList.add('active')}
 function layout(l){cmd('LAYOUT '+l);W=l?32:64;H=l?16:8;buildGrids()}
@@ -271,6 +275,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
             self.wfile.write(resp.encode())
+        elif self.path == "/api/port":
+            global DEV
+            DEV = data.get("port")
+            resp = send_cmd("PING")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write((resp if resp else "no response").encode())
         elif self.path == "/api/frame":
             rgb = data.get("rgb", [])
             resp = send_frame(rgb)

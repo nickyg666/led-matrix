@@ -26,7 +26,7 @@ static uint32_t pixels[NUM_LEDS];
 static uint16_t dither_err[NUM_LEDS][3];
 static uint8_t  brightness = 26;
 static uint8_t  fine_dim = 255;  /* 0-255 sub-brightness for very low levels */
-static uint8_t  anim_mode = 0;  /* 0=text,1=rainbow,2=pulse,3=wave,4=fire,5=matrix,6=plasma,7=sparkle */
+static uint8_t  anim_mode = 0;  /* 0=text,1=rainbow,2=pulse,3=wave,4=fire,5=matrix,6=plasma,7=sparkle,8=image,9=bounce */
 static uint8_t  anim_speed = 24; /* 1-255, lower=slower */
 static uint32_t anim_tick = 0;
 static uint64_t last_anim = 0;
@@ -410,7 +410,8 @@ static void process_cmd(const char *cmd) {
         else if (strcmp(mode, "plasma") == 0) anim_mode = 6;
         else if (strcmp(mode, "sparkle") == 0) anim_mode = 7;
         else if (strcmp(mode, "text") == 0) anim_mode = 0;
-        else { printf("ERR: effects: text rainbow pulse wave fire matrix plasma sparkle\n"); return; }
+        else if (strcmp(mode, "bounce") == 0) anim_mode = 9;
+        else { printf("ERR: effects: text rainbow pulse wave fire matrix plasma sparkle bounce\\n"); return; }
         anim_tick = 0;
         printf("OK EFFECT=%s\n", mode);
     } else if (strncmp(cmd, "BRIGHT", 6) == 0 && cmd[6] == ' ') {
@@ -465,12 +466,13 @@ static void process_cmd(const char *cmd) {
         }
     } else if (strncmp(cmd, "LAYOUT", 6) == 0 && cmd[6] == ' ') {
         int l;
-        if (sscanf(cmd + 6, "%d", &l) == 1 && (l == 0 || l == 1)) {
+        if (sscanf(cmd + 6, "%d", &l) == 1 && (l >= 0 && l <= 2)) {
             layout = l;
-            disp_w = l ? 32 : 64;
-            disp_h = l ? 16 : 8;
+            if (l == 0) { disp_w = 64; disp_h = 8; }
+            else if (l == 1) { disp_w = 32; disp_h = 16; }
+            else { disp_w = 32; disp_h = 8; }
             scroll_x = -text_width;
-            printf("OK LAYOUT=%dx%d\n", disp_w, disp_h);
+            printf("OK LAYOUT=%dx%d\\n", disp_w, disp_h);
         } else {
             printf("ERR: LAYOUT 0 (8x64) or 1 (16x32)\n");
         }
@@ -535,7 +537,8 @@ static void process_cmd(const char *cmd) {
         printf("  DIM <0-255>      Fine dimming below BRIGHT\n");
         printf("  SPEED <1-255>    Scroll/anim speed (1=slow)\n");
         printf("  DIR <1|-1>       Scroll direction (1=left, -1=right)\n");
-        printf("  LAYOUT 0|1       8x64 (0) or 16x32 (1)\n");
+        printf("  LAYOUT 0|1|2     8x64(0) 16x32(1) 8x32(2)\\n");
+        printf("  EFFECT bounce    Bouncing text (right->left->right)\\n");
         printf("  IMGB             Binary frame (512*3 bytes)\n");
         printf("  STATE            Current state\n");
         printf("  MIRROR           Toggle mirror second strip\n");
@@ -613,10 +616,16 @@ int main(void) {
             anim_tick++;
 
             /* Update scroll position for text mode */
-            if (anim_mode == 0) {
+            if (anim_mode == 0 || anim_mode == 9) {
                 scroll_x += text_dir;
-                if (scroll_x < -text_width) scroll_x = disp_w;
-                if (scroll_x > disp_w + text_width) scroll_x = -text_width;
+                if (anim_mode == 9) {
+                    /* Bounce: reverse at edges */
+                    if (scroll_x <= -text_width) { scroll_x = -text_width; text_dir = 1; }
+                    if (scroll_x >= disp_w) { scroll_x = disp_w; text_dir = -1; }
+                } else {
+                    if (scroll_x < -text_width) scroll_x = disp_w;
+                    if (scroll_x > disp_w + text_width) scroll_x = -text_width;
+                }
                 render_text();
             } else if (anim_mode == 1) fx_rainbow();
             else if (anim_mode == 2) fx_pulse();
