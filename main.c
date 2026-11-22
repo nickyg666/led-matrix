@@ -12,9 +12,9 @@
 #include "font5x8.h"
 
 /* ---------- Configuration ---------- */
-#define NUM_COLS   64
+#define NUM_COLS   32
 #define NUM_ROWS   8
-#define NUM_LEDS   (NUM_COLS * NUM_ROWS)  /* 512 */
+#define NUM_LEDS   (NUM_COLS * NUM_ROWS)  /* 256 */
 #define DATA_PIN   10
 #define PIO_FREQ   800000.0f
 
@@ -23,35 +23,29 @@
 
 /* ---------- State ---------- */
 static uint32_t pixels[NUM_LEDS];
-static uint16_t dither_err[NUM_LEDS][3];
-static uint8_t  brightness = 26;
-static uint8_t  fine_dim = 255;  /* 0-255 sub-brightness for very low levels */
+static volatile int img_recv = 0;
+static int img_idx = 0;
+static uint8_t img_bytes[NUM_LEDS * 3];
+static uint8_t  brightness = 128;
 static uint8_t  anim_mode = 0;  /* 0=text,1=rainbow,2=pulse,3=wave,4=fire,5=matrix,6=plasma,7=sparkle,8=image,9=bounce */
-static uint8_t  anim_speed = 24; /* 1-255, lower=slower */
+static uint8_t  anim_speed = 24;
 static uint32_t anim_tick = 0;
 static uint64_t last_anim = 0;
 static uint32_t rng = 2463534242u;
 
 static char text_buf[TEXT_BUF];
 static int  text_len = 0;
-static int  scroll_x = 0;  /* current scroll offset in pixels */
-static int  text_width = 0; /* total width of text in pixels */
+static int  scroll_x = 0;
+static int  text_width = 0;
 static uint8_t text_color_r = 255, text_color_g = 255, text_color_b = 255;
 static uint8_t text_rainbow = 0;
 static uint8_t bg_color_r = 0, bg_color_g = 0, bg_color_b = 0;
-static int  text_dir = 1;  /* 1=left-to-right, -1=right-to-left */
-static int  mirror_second = 0;  /* mirror second strip for physical layout */
-static int  text_baseline = 0;  /* vertical shift after mapping */
-static int  vflip = 0;  /* 1 = font row 0 maps to display row 7 */
-static int  serpentine = 1;  /* 1 = odd columns run bottom-to-top */
-static int  layout = 0;  /* 0 = 8x64, 1 = 16x32 */
-static int  disp_w = 64, disp_h = 8;
-static volatile int img_recv = 0;
-static int img_idx = 0;
-static uint8_t img_bytes[NUM_LEDS * 3];
+static int  text_dir = 1;  /* 1=left-to-right */
+static int  vflip = 0;
+static int  hflip = 0;
+static int  text_baseline = 0;
 
 static uint32_t image_buf[NUM_LEDS];
-static bool has_image = false;
 
 static PIO  strip_pio;
 static uint strip_sm;
@@ -76,51 +70,16 @@ static const uint8_t sin_tab[256] = {
     79,82,85,88,90,93,97,100,103,106,109,112,115,118,121,124
 };
 
-static const uint8_t bayer8[64] = {
-     0,32, 8,40, 2,34,10,42,
-    48,16,56,24,50,18,58,26,
-    12,44, 4,36,14,46, 6,38,
-    60,28,52,20,62,30,54,22,
-     3,35,11,43, 1,33, 9,41,
-    51,19,59,27,49,17,57,25,
-    15,47, 7,39,13,45, 5,37,
-    63,31,55,23,61,29,53,21
-};
-
 /* ---------- Helpers ---------- */
 static inline uint32_t pack(uint8_t r, uint8_t g, uint8_t b) {
     return ((uint32_t)g << 24) | ((uint32_t)r << 16) | ((uint32_t)b << 8);
 }
 
-/* (x,y) -> LED index. LEDs chained vertically: each column is 8 LEDs */
 static inline int idx(int x, int y) {
     if (x < 0 || x >= NUM_COLS || y < 0 || y >= NUM_ROWS) return -1;
-    int col = x;
-    if (mirror_second && col >= 32) {
-        col = 63 - (col - 32);  /* mirror second strip */
-    }
-    int py = y;
-    if (serpentine && (col & 1)) py = NUM_ROWS - 1 - py;
-    return col * NUM_ROWS + py;
-}
-
-/* Logical (x,y) -> physical LED index, honoring layout + serpentine */
-static inline int mapxy(int x, int y) {
-    if (x < 0 || x >= disp_w || y < 0 || y >= disp_h) return -1;
-    int px, py;
-    if (layout == 0) {
-        px = x;
-        py = y;
-    } else {
-        int strip = y / 8;
-        px = x + strip * 32;
-        py = y % 8;
-    }
-    int col = px;
-    if (mirror_second && col >= 32) col = 63 - (col - 32);
-    int phys_y = py;
-    if (serpentine && (col & 1)) phys_y = NUM_ROWS - 1 - phys_y;
-    return col * NUM_ROWS + phys_y;
+    int px = hflip ? (NUM_COLS - 1 - x) : x;
+    int py = vflip ? (NUM_ROWS - 1 - y) : y;
+    return px * NUM_ROWS + py;
 }
 
 static uint8_t rand8(void) {
@@ -141,58 +100,41 @@ static void strip_init(void) {
 }
 
 static void strip_show(void) {
-    if (brightness > 26) brightness = 26;
     if (brightness == 0) {
-        memset(dither_err, 0, sizeof(dither_err));
         for (int i = 0; i < NUM_LEDS; i++) pio_sm_put_blocking(strip_pio, strip_sm, 0);
         return;
     }
     for (int i = 0; i < NUM_LEDS; i++) {
         uint32_t p = pixels[i];
-        uint32_t scale = (uint32_t)brightness * fine_dim;
-        int col = i / NUM_ROWS;
-        int row = i % NUM_ROWS;
-        uint8_t d0 = bayer8[(row & 7) * 8 + (col & 7)];
-        uint8_t d1 = bayer8[((row + 3) & 7) * 8 + ((col + 5) & 7)];
-        uint8_t d2 = bayer8[((row + 5) & 7) * 8 + ((col + 3) & 7)];
-        uint32_t a;
-        a = ((p >> 24) & 0xFF) * scale;
-        uint8_t g = a / 65280; if ((a % 65280) * 64 > d0 * 65280) g++;
-        a = ((p >> 16) & 0xFF) * scale;
-        uint8_t r = a / 65280; if ((a % 65280) * 64 > d1 * 65280) r++;
-        a = ((p >> 8) & 0xFF) * scale;
-        uint8_t b = a / 65280; if ((a % 65280) * 64 > d2 * 65280) b++;
+        uint8_t g = ((p >> 24) & 0xFF) * brightness / 255;
+        uint8_t r = ((p >> 16) & 0xFF) * brightness / 255;
+        uint8_t b = ((p >> 8) & 0xFF) * brightness / 255;
         pio_sm_put_blocking(strip_pio, strip_sm, pack(r, g, b));
     }
 }
 
-/* ---------- Text rendering ---------- */
 static int char_width(char c) {
     if (c < 32 || c > 126) return 0;
-    return 8; /* 8 px wide + 1 space = 9 */
+    return 5;
 }
 
 static int text_pixel_width(const char *s) {
     int w = 0;
     for (int i = 0; s[i]; i++) {
-        if (s[i] == ' ') w += 5;
-        else w += 9; /* 8 + 1 space */
+        if (s[i] == ' ') w += 3;
+        else w += 6;
     }
-    if (w > 0) w -= 1; /* trailing space removed */
+    if (w > 0) w -= 1;
     return w;
 }
 
-/* Draw a character at column x (can be negative for scrolling) */
 static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
     if (c < 32 || c > 126) return;
     int ci = c - 32;
     for (int row = 0; row < 8; row++) {
         uint8_t bits = font5x8[ci][row];
-        int y = vflip ? (NUM_ROWS - 1 - row) : row;
-        y += text_baseline;
-        if (y < 0 || y >= NUM_ROWS) continue;
-        for (int col = 0; col < 8; col++) {
-            if (!(bits & (1 << (7 - col)))) continue;
+        for (int col = 0; col < 5; col++) {
+            if (!(bits & (1 << (4 - col)))) continue;
             int px = x + col;
             if (px < 0 || px >= NUM_COLS) continue;
             uint8_t rr = r, gg = g, bb = b;
@@ -210,7 +152,9 @@ static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
                     default: rr=255; gg=p; bb=q; break;
                 }
             }
-            int i = mapxy(px, y);
+            int y = row + text_baseline;
+            if (y < 0 || y >= NUM_ROWS) continue;
+            int i = idx(px, y);
             if (i >= 0) pixels[i] = pack(rr, gg, bb);
         }
     }
@@ -218,7 +162,6 @@ static void draw_char(int x, char c, uint8_t r, uint8_t g, uint8_t b) {
 
 static void render_text(void) {
     clear_pixels();
-    /* background */
     if (bg_color_r || bg_color_g || bg_color_b) {
         for (int i = 0; i < NUM_LEDS; i++)
             pixels[i] = pack(bg_color_r, bg_color_g, bg_color_b);
@@ -226,17 +169,16 @@ static void render_text(void) {
     int x = scroll_x;
     for (int i = 0; i < text_len && text_buf[i]; i++) {
         char c = text_buf[i];
-        if (c == ' ') { x += 5; continue; }
+        if (c == ' ') { x += 3; continue; }
         draw_char(x, c, text_color_r, text_color_g, text_color_b);
-        x += 9;
+        x += 6;
     }
 }
 
 /* ---------- Effects ---------- */
 static void fx_rainbow(void) {
-    for (int col = 0; col < disp_w; col++) {
+    for (int col = 0; col < NUM_COLS; col++) {
         uint8_t hue = (anim_tick + col * 8) & 0xFF;
-        /* simple HSV to RGB */
         uint8_t r, g, b;
         uint8_t region = hue / 43;
         uint8_t rem = (hue % 43) * 6;
@@ -249,8 +191,8 @@ static void fx_rainbow(void) {
             case 4: r=t; g=p; b=255; break;
             default: r=255; g=p; b=q; break;
         }
-        for (int row = 0; row < disp_h; row++) {
-            int i = mapxy(col, row);
+        for (int row = 0; row < NUM_ROWS; row++) {
+            int i = idx(col, row);
             if (i >= 0) pixels[i] = pack(r, g, b);
         }
     }
@@ -259,28 +201,54 @@ static void fx_rainbow(void) {
 static void fx_pulse(void) {
     uint8_t phase = anim_tick & 0xFF;
     uint8_t brightness = (phase < 128) ? (phase * 2) : (255 - (phase - 128) * 2);
-    uint32_t px = pack(
-        (text_color_r * brightness) / 255,
-        (text_color_g * brightness) / 255,
-        (text_color_b * brightness) / 255);
+    uint32_t px = pack((text_color_r * brightness) / 255,
+                       (text_color_g * brightness) / 255,
+                       (text_color_b * brightness) / 255);
     for (int i = 0; i < NUM_LEDS; i++) pixels[i] = px;
 }
 
 static void fx_wave(void) {
-    for (int col = 0; col < disp_w; col++) {
-        uint8_t v = (sin_tab[(anim_tick + col * 4) & 0xFF]) ;
+    for (int col = 0; col < NUM_COLS; col++) {
+        uint8_t v = sin_tab[(anim_tick + col * 4) & 0xFF];
         uint8_t r = (v * text_color_r) / 255;
         uint8_t g = (v * text_color_g) / 255;
         uint8_t b = (v * text_color_b) / 255;
-        for (int row = 0; row < disp_h; row++) {
-            int i = mapxy(col, row);
+        for (int row = 0; row < NUM_ROWS; row++) {
+            int i = idx(col, row);
             if (i >= 0) pixels[i] = pack(r, g, b);
         }
     }
 }
 
+static void fx_fire(void) {
+    for (int col = 0; col < NUM_COLS; col++) {
+        if (rand8() < 80) {
+            uint8_t v = 180 + (rand8() % 75);
+            pixels[idx(col, NUM_ROWS - 1)] = pack(v, v / 3, 0);
+        }
+    }
+    for (int col = 0; col < NUM_COLS; col++) {
+        for (int row = 0; row < NUM_ROWS - 1; row++) {
+            uint32_t p = pixels[idx(col, row + 1)];
+            uint8_t r = ((p >> 16) & 0xFF);
+            uint8_t g = ((p >> 24) & 0xFF);
+            uint8_t b = ((p >> 8) & 0xFF);
+            r = (r > 20) ? r - 20 : 0;
+            g = (g > 10) ? g - 10 : 0;
+            b = (b > 5) ? b - 5 : 0;
+            pixels[idx(col, row)] = pack(r, g, b);
+        }
+        int top = idx(col, 0);
+        if (top >= 0) {
+            uint32_t p = pixels[top];
+            pixels[top] = pack(((p >> 16) & 0xFF) * 8 / 10,
+                               ((p >> 24) & 0xFF) * 8 / 10,
+                               ((p >> 8) & 0xFF) * 8 / 10);
+        }
+    }
+}
+
 static void fx_matrix(void) {
-    /* dim all */
     for (int i = 0; i < NUM_LEDS; i++) {
         uint32_t p = pixels[i];
         uint8_t r = ((p >> 16) & 0xFF) * 8 / 10;
@@ -288,33 +256,31 @@ static void fx_matrix(void) {
         uint8_t b = ((p >> 8) & 0xFF) * 8 / 10;
         pixels[i] = pack(r, g, b);
     }
-    /* new drops */
     if (rand8() < 40) {
-        int col = rand8() % disp_w;
+        int col = rand8() % NUM_COLS;
         pixels[idx(col, 0)] = pack(0, 255, 0);
     }
-    /* move drops down */
     for (int col = 0; col < NUM_COLS; col++) {
         for (int row = NUM_ROWS - 1; row > 0; row--) {
-            int i = mapxy(col, row);
+            int i = idx(col, row);
             int above = idx(col, row - 1);
             if (i >= 0 && above >= 0) pixels[i] = pixels[above];
         }
-        int top = mapxy(col, 0);
+        int top = idx(col, 0);
         if (top >= 0 && (rand8() < 30)) pixels[top] = 0;
     }
 }
 
 static void fx_plasma(void) {
-    for (int col = 0; col < disp_w; col++) {
-        for (int row = 0; row < disp_h; row++) {
-            uint8_t v1 = (sin_tab[(col * 8 + anim_tick * 2) & 0xFF]);
-            uint8_t v2 = (sin_tab[(row * 16 - anim_tick * 3) & 0xFF]);
+    for (int col = 0; col < NUM_COLS; col++) {
+        for (int row = 0; row < NUM_ROWS; row++) {
+            uint8_t v1 = sin_tab[(col * 8 + anim_tick * 2) & 0xFF];
+            uint8_t v2 = sin_tab[(row * 16 - anim_tick * 3) & 0xFF];
             uint8_t v = (v1 + v2) / 2;
             uint8_t r = sin_tab[v];
             uint8_t g = sin_tab[(v + 85) & 0xFF];
             uint8_t b = sin_tab[(v + 170) & 0xFF];
-            int i = mapxy(col, row);
+            int i = idx(col, row);
             if (i >= 0) pixels[i] = pack(r, g, b);
         }
     }
@@ -334,44 +300,6 @@ static void fx_sparkle(void) {
     }
 }
 
-static void fx_fire(void) {
-    /* simple fire: bottom row hot, fade up */
-    for (int col = 0; col < disp_w; col++) {
-        /* random spark at bottom */
-        if (rand8() < 80) {
-            uint8_t v = 180 + (rand8() % 75);
-            pixels[mapxy(col, disp_h-1)] = pack(v, v/3, 0);
-        }
-    }
-    /* propagate up with decay */
-    for (int col = 0; col < NUM_COLS; col++) {
-        for (int row = 0; row < NUM_ROWS - 1; row++) {
-            uint32_t p = pixels[idx(col, row+1)];
-            uint8_t r = ((p >> 16) & 0xFF);
-            uint8_t g = ((p >> 24) & 0xFF);
-            uint8_t b = ((p >> 8) & 0xFF);
-            /* decay */
-            r = (r > 20) ? r - 20 : 0;
-            g = (g > 10) ? g - 10 : 0;
-            b = (b > 5) ? b - 5 : 0;
-            /* spread */
-            int left = (col > 0) ? col - 1 : col;
-            int right = (col < NUM_COLS-1) ? col + 1 : col;
-            pixels[idx(col, row)] = pack((r + (pixels[idx(left,row+1)]>>16&0xFF) + (pixels[idx(right,row+1)]>>16&0xFF))/3,
-                                        (g + (pixels[idx(left,row+1)]>>24&0xFF) + (pixels[idx(right,row+1)]>>24&0xFF))/3,
-                                        (b + (pixels[idx(left,row+1)]>>8&0xFF) + (pixels[idx(right,row+1)]>>8&0xFF))/3);
-        }
-        /* top row fade */
-        int top = mapxy(col, 0);
-        if (top >= 0) {
-            uint32_t p = pixels[top];
-            pixels[top] = pack(((p>>16)&0xFF)*8/10, ((p>>24)&0xFF)*8/10, ((p>>8)&0xFF)*8/10);
-        }
-    }
-}
-
-
-
 /* ---------- Command parser ---------- */
 static void process_cmd(const char *cmd) {
     while (*cmd && (*cmd == ' ' || *cmd == '\t')) cmd++;
@@ -384,8 +312,9 @@ static void process_cmd(const char *cmd) {
         text_buf[TEXT_BUF - 1] = '\0';
         text_len = strlen(text_buf);
         text_width = text_pixel_width(text_buf);
-        scroll_x = -text_width; /* start off-screen right */
+        scroll_x = -text_width;
         anim_mode = 0;
+        text_dir = 1;
         printf("OK TEXT=%s (width=%d)\n", text_buf, text_width);
     } else if (strncmp(cmd, "COLOR", 5) == 0 && cmd[5] == ' ') {
         int r, g, b;
@@ -411,23 +340,15 @@ static void process_cmd(const char *cmd) {
         else if (strcmp(mode, "sparkle") == 0) anim_mode = 7;
         else if (strcmp(mode, "text") == 0) anim_mode = 0;
         else if (strcmp(mode, "bounce") == 0) anim_mode = 9;
-        else { printf("ERR: effects: text rainbow pulse wave fire matrix plasma sparkle bounce\\n"); return; }
+        else { printf("ERR: effects: text rainbow pulse wave fire matrix plasma sparkle bounce\n"); return; }
         anim_tick = 0;
         printf("OK EFFECT=%s\n", mode);
     } else if (strncmp(cmd, "BRIGHT", 6) == 0 && cmd[6] == ' ') {
         int b;
         if (sscanf(cmd + 6, "%d", &b) == 1 && b >= 0 && b <= 255) {
-            if (b > 26) b = 26;
+            if (b > 255) b = 255;
             brightness = (uint8_t)b;
             printf("OK BRIGHT=%d\n", b);
-        }
-    } else if (strncmp(cmd, "DIM", 3) == 0 && cmd[3] == ' ') {
-        int d;
-        if (sscanf(cmd + 3, "%d", &d) == 1 && d >= 0 && d <= 255) {
-            fine_dim = (uint8_t)d;
-            printf("OK DIM=%d\n", d);
-        } else {
-            printf("ERR: DIM 0-255\n");
         }
     } else if (strncmp(cmd, "SPEED", 5) == 0 && cmd[5] == ' ') {
         int s;
@@ -435,21 +356,18 @@ static void process_cmd(const char *cmd) {
             anim_speed = (uint8_t)s;
             printf("OK SPEED=%d\n", s);
         }
-    } else if (strncmp(cmd, "RAINBOWTEXTOFF", 14) == 0) {
-        text_rainbow = 0;
-        printf("OK rainbow text off\n");
     } else if (strncmp(cmd, "RAINBOWTEXT", 11) == 0) {
         text_rainbow = 1;
         printf("OK rainbow text on\n");
-    } else if (strncmp(cmd, "MIRROR", 6) == 0) {
-        mirror_second = !mirror_second;
-        printf("OK MIRROR=%d\n", mirror_second);
+    } else if (strncmp(cmd, "RAINBOWTEXTOFF", 14) == 0) {
+        text_rainbow = 0;
+        printf("OK rainbow text off\n");
     } else if (strncmp(cmd, "VFLIP", 5) == 0) {
         vflip = !vflip;
         printf("OK VFLIP=%d\n", vflip);
-    } else if (strncmp(cmd, "SERP", 4) == 0) {
-        serpentine = !serpentine;
-        printf("OK SERP=%d\n", serpentine);
+    } else if (strncmp(cmd, "HFLIP", 5) == 0) {
+        hflip = !hflip;
+        printf("OK HFLIP=%d\n", hflip);
     } else if (strncmp(cmd, "BASE", 4) == 0 && cmd[4] == ' ') {
         int b;
         if (sscanf(cmd + 4, "%d", &b) == 1 && b >= 0 && b <= 1) {
@@ -464,24 +382,6 @@ static void process_cmd(const char *cmd) {
             text_dir = (d >= 0) ? 1 : -1;
             printf("OK DIR=%d\n", text_dir);
         }
-    } else if (strncmp(cmd, "LAYOUT", 6) == 0 && cmd[6] == ' ') {
-        int l;
-        if (sscanf(cmd + 6, "%d", &l) == 1 && (l >= 0 && l <= 2)) {
-            layout = l;
-            if (l == 0) { disp_w = 64; disp_h = 8; }
-            else if (l == 1) { disp_w = 32; disp_h = 16; }
-            else { disp_w = 32; disp_h = 8; }
-            scroll_x = -text_width;
-            printf("OK LAYOUT=%dx%d\\n", disp_w, disp_h);
-        } else {
-            printf("ERR: LAYOUT 0 (8x64) or 1 (16x32)\n");
-        }
-    } else if (strcmp(cmd, "IMGB") == 0) {
-        img_recv = 1;
-        img_idx = 0;
-    } else if (strcmp(cmd, "STATE") == 0) {
-        printf("STATE layout=%dx%d anim=%d speed=%d bright=%d dim=%d len=%d\n",
-               disp_w, disp_h, anim_mode, anim_speed, brightness, fine_dim, text_len);
     } else if (strncmp(cmd, "IMAGE", 5) == 0 && (cmd[5] == ' ' || cmd[5] == '\0')) {
         const char *p = cmd + 5;
         while (*p == ' ') p++;
@@ -518,7 +418,7 @@ static void process_cmd(const char *cmd) {
         brightness = 0;
         printf("OK off\n");
     } else if (strcmp(cmd, "ON") == 0) {
-        brightness = 26;
+        brightness = 255;
         printf("OK on\n");
     } else if (strcmp(cmd, "PING") == 0) {
         printf("PONG\n");
@@ -532,18 +432,12 @@ static void process_cmd(const char *cmd) {
         printf("  TEXT <str>       Set scrolling text\n");
         printf("  COLOR r g b      Text color\n");
         printf("  BG r g b         Background color\n");
-        printf("  EFFECT <name>    text rainbow pulse wave fire matrix plasma sparkle\n");
-        printf("  BRIGHT <0-26>    Brightness (capped at 10%%)\n");
-        printf("  DIM <0-255>      Fine dimming below BRIGHT\n");
+        printf("  EFFECT <name>    text rainbow pulse wave fire matrix plasma sparkle bounce\n");
+        printf("  BRIGHT <0-255>   Brightness\n");
         printf("  SPEED <1-255>    Scroll/anim speed (1=slow)\n");
         printf("  DIR <1|-1>       Scroll direction (1=left, -1=right)\n");
-        printf("  LAYOUT 0|1|2     8x64(0) 16x32(1) 8x32(2)\\n");
-        printf("  EFFECT bounce    Bouncing text (right->left->right)\\n");
-        printf("  IMGB             Binary frame (512*3 bytes)\n");
-        printf("  STATE            Current state\n");
-        printf("  MIRROR           Toggle mirror second strip\n");
-        printf("  VFLIP            Flip text vertically\n");
-        printf("  SERP             Toggle serpentine columns\n");
+        printf("  VFLIP            Upside down text\n");
+        printf("  HFLIP            Reversed text\n");
         printf("  BASE <0|1>       Text baseline row offset\n");
         printf("  RAINBOWTEXT      Enable rainbow colors on text\n");
         printf("  RAINBOWTEXTOFF   Disable rainbow colors on text\n");
@@ -566,12 +460,12 @@ int main(void) {
     text_width = text_pixel_width(text_buf);
     scroll_x = -text_width;
 
-    printf("LED Matrix ready\n");
+    printf("LED Matrix 8x32 ready\n");
     fflush(stdout);
     sleep_ms(200);
 
     char buf[LINE_BUF];
-    int idx = 0;
+    int buf_idx = 0;
     last_anim = time_us_64();
 
     while (true) {
@@ -581,10 +475,10 @@ int main(void) {
                 if (img_idx < NUM_LEDS * 3) img_bytes[img_idx++] = (uint8_t)c;
                 if (img_idx >= NUM_LEDS * 3) {
                     clear_pixels();
-                    for (int y = 0; y < disp_h; y++) {
-                        for (int x = 0; x < disp_w; x++) {
-                            int bi = (y * disp_w + x) * 3;
-                            int pi = mapxy(x, y);
+                    for (int y = 0; y < 8; y++) {
+                        for (int x = 0; x < 32; x++) {
+                            int bi = (y * 32 + x) * 3;
+                            int pi = idx(x, y);
                             if (pi >= 0)
                                 pixels[pi] = pack(img_bytes[bi], img_bytes[bi+1], img_bytes[bi+2]);
                         }
@@ -596,35 +490,33 @@ int main(void) {
                 }
             }
         } else {
-        int c = getchar_timeout_us(200);
-        if (c != PICO_ERROR_TIMEOUT) {
-            if (c == '\n' || c == '\r') {
-                buf[idx] = '\0';
-                if (idx > 0) process_cmd(buf);
-                idx = 0;
-            } else if (idx < LINE_BUF - 1 && c >= 32 && c < 127) {
-                buf[idx++] = (char)c;
+            int c = getchar_timeout_us(200);
+            if (c != PICO_ERROR_TIMEOUT) {
+                if (c == '\n' || c == '\r') {
+                    buf[buf_idx] = '\0';
+                    if (buf_idx > 0) process_cmd(buf);
+                    buf_idx = 0;
+                } else if (buf_idx < LINE_BUF - 1 && c >= 32 && c < 127) {
+                    buf[buf_idx++] = (char)c;
+                }
             }
         }
 
-        }
         uint64_t now = time_us_64();
-        uint32_t interval = 400000u / anim_speed;
-        if (interval < 20000) interval = 20000; /* 512 LEDs need ~15ms to shift out */
+        uint32_t interval = 1000000 / (anim_speed * 2 + 1);
+        if (interval < 20000) interval = 20000;
         if (now - last_anim >= interval) {
             last_anim = now;
             anim_tick++;
 
-            /* Update scroll position for text mode */
             if (anim_mode == 0 || anim_mode == 9) {
                 scroll_x += text_dir;
                 if (anim_mode == 9) {
-                    /* Bounce: reverse at edges */
                     if (scroll_x <= -text_width) { scroll_x = -text_width; text_dir = 1; }
-                    if (scroll_x >= disp_w) { scroll_x = disp_w; text_dir = -1; }
+                    if (scroll_x >= 32) { scroll_x = 32; text_dir = -1; }
                 } else {
-                    if (scroll_x < -text_width) scroll_x = disp_w;
-                    if (scroll_x > disp_w + text_width) scroll_x = -text_width;
+                    if (scroll_x < -text_width) scroll_x = 32;
+                    if (scroll_x > 32 + text_width) scroll_x = -text_width;
                 }
                 render_text();
             } else if (anim_mode == 1) fx_rainbow();
@@ -634,7 +526,7 @@ int main(void) {
             else if (anim_mode == 5) fx_matrix();
             else if (anim_mode == 6) fx_plasma();
             else if (anim_mode == 7) fx_sparkle();
-            /* mode 8 = static image, do nothing (pixels already set) */
+            /* mode 8 = static image */
 
             strip_show();
         }
